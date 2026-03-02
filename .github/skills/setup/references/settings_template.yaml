@@ -5,12 +5,13 @@
 # LLM Configuration
 # =============================================================================
 llm:
-  provider: "{llm_provider}"  # Options: openai, azure, ollama, deepseek
+  provider: "{llm_provider}"  # Options: openai, azure, ollama, deepseek, qwen, gemini, ...
   model: "{llm_model}"
   deployment_name: "{llm_deployment_name}"
   azure_endpoint: "{llm_azure_endpoint}"
   api_version: "{llm_api_version}"
   api_key: "{llm_api_key}"
+  base_url: "{llm_base_url}"
   temperature: 0.0
   max_tokens: 4096
 
@@ -18,25 +19,27 @@ llm:
 # Embedding Configuration
 # =============================================================================
 embedding:
-  provider: "{embed_provider}"  # Options: openai, azure, ollama
+  provider: "{embed_provider}"  # Options: openai, azure, ollama, qwen, gemini, ...
   model: "{embed_model}"
   dimensions: {embed_dimensions}
   azure_endpoint: "{embed_azure_endpoint}"
   deployment_name: "{embed_deployment_name}"
   api_version: "{embed_api_version}"
   api_key: "{embed_api_key}"
+  base_url: "{embed_base_url}"
 
 # =============================================================================
 # Vision LLM Configuration (for Image Captioning)
 # =============================================================================
 vision_llm:
   enabled: {vision_enabled}
-  provider: "{vision_provider}"
+  provider: "{vision_provider}"  # Options: openai, azure, ollama, qwen, gemini, ...
   model: "{vision_model}"
   azure_endpoint: "{vision_azure_endpoint}"
   deployment_name: "{vision_deployment_name}"
   api_version: "{vision_api_version}"
   api_key: "{vision_api_key}"
+  base_url: "{vision_base_url}"
   max_image_size: 2048
 
 # =============================================================================

@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Interactive project setup wizard. From a clean codebase, guides user through provider selection (OpenAI/Azure/DeepSeek/Ollama), API key configuration, dependency installation, config generation, and launches the dashboard. Auto-diagnoses and fixes startup failures with up to 3 retry rounds. Use when user says 'setup', 'set up', 'configure', 'init project', '初始化', '环境配置', '项目配置', 'first run', 'get started', 'quick start', or wants to configure and launch the project from scratch."
+description: "Interactive project setup wizard. From a clean codebase, guides user through provider selection (OpenAI/Azure/DeepSeek/Ollama/Qwen/Gemini/etc.), API key configuration, dependency installation, config generation, and launches the dashboard. If user selects an unimplemented provider, auto-scaffolds the provider code following the plugin architecture. Auto-diagnoses and fixes startup failures with up to 3 retry rounds. Use when user says 'setup', 'set up', 'configure', 'init project', '初始化', '环境配置', '项目配置', 'first run', 'get started', 'quick start', or wants to configure and launch the project from scratch."
 ---
 
 # Setup
@@ -49,12 +49,14 @@ Use the `ask_questions` tool to gather provider choices. Ask in batches (max 4 q
 Ask these questions together:
 
 1. **LLM Provider** — Which LLM provider?
-   - Options: `OpenAI`, `Azure OpenAI`, `DeepSeek`, `Ollama (local)`
+   - Options: `OpenAI`, `Azure OpenAI`, `DeepSeek`, `Ollama (local)`, `Qwen (Alibaba Cloud)`, `Gemini (Google)`
    - Recommended: `OpenAI`
+   - Built-in: OpenAI, Azure, DeepSeek, Ollama. Others require auto-scaffolding (see Step 2.5).
 
 2. **Embedding Provider** — Which embedding provider?
-   - Options: `OpenAI`, `Azure OpenAI`, `Ollama (local)`
+   - Options: `OpenAI`, `Azure OpenAI`, `Ollama (local)`, `Qwen (Alibaba Cloud)`, `Gemini (Google)`
    - Recommended: `OpenAI` (should match LLM provider when possible)
+   - Built-in: OpenAI, Azure, Ollama. Others require auto-scaffolding (see Step 2.5).
 
 3. **Vision** — Enable vision/image captioning?
    - Options: `Yes`, `No`
@@ -63,6 +65,7 @@ Ask these questions together:
 4. **Rerank** — Enable reranking?
    - Options: `No (fastest)`, `Cross-Encoder (local model)`, `LLM-based`
    - Recommended: `No (fastest)`
+   - ⚠️ Note: Cross-Encoder 仅完成了本地代码实现，尚未经过充分测试，可能存在兼容性问题。建议优先选择「不启用」或「LLM 重排序」。
 
 ### Batch 2: Credentials (based on Batch 1 answers)
 
@@ -88,6 +91,64 @@ Ask for credentials based on selected providers. Refer to [references/provider_p
 - Ask: LLM model name (default: `llama3`)
 - Ask: Embedding model name (default: `nomic-embed-text`)
 - Verify Ollama is running: `curl http://localhost:11434/api/tags` or equivalent
+
+**If Qwen selected:**
+- Ask: Qwen API Key (DashScope)
+- Ask: LLM model (default: `qwen-turbo`)
+- Ask: Embedding model (default: `text-embedding-v3`) — if Qwen also chosen for embedding
+- Base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1` (OpenAI-compatible)
+
+**If Gemini selected:**
+- Ask: Gemini API Key (Google AI Studio)
+- Ask: LLM model (default: `gemini-2.0-flash`)
+- Ask: Embedding model (default: `text-embedding-004`) — if Gemini also chosen for embedding
+- Base URL: `https://generativelanguage.googleapis.com/v1beta/openai/` (OpenAI-compatible)
+
+### Batch 3: Vision Credentials (if vision enabled)
+
+Vision LLM has its **own independent config section** (`vision_llm`) with separate `provider`, `api_key`, `azure_endpoint`, etc. Do NOT assume it shares credentials with the main LLM.
+
+Ask up to 2 questions:
+
+1. **Vision Provider** — Which provider for vision/image captioning?
+   - Options: same as LLM provider list, but default to user's LLM choice
+   - Built-in vision: OpenAI, Azure. Others require auto-scaffolding.
+
+2. **Vision credentials** — based on provider:
+   - If vision provider == LLM provider: ask "Reuse the same API key/endpoint for vision?" (default: Yes)
+     - If Yes: copy LLM credentials to vision config
+     - If No: ask for separate vision API key / endpoint
+   - If vision provider != LLM provider: ask for vision-specific API key / endpoint / model
+
+Vision models per provider (recommended model listed first):
+
+| Provider | Recommended | Other Options | Notes |
+|----------|------------|---------------|-------|
+| OpenAI | `gpt-4o` | `gpt-4o-mini`, `gpt-4-turbo` | gpt-4o-mini 更便宜，适合简单图片描述 |
+| Azure | `gpt-4o` | `gpt-4o-mini`, `gpt-4-turbo` | 需要 deployment_name + azure_endpoint |
+| Ollama | `llava` | `llava:13b`, `llava:34b`, `llava-llama3`, `bakllava`, `moondream` | moondream 最轻量，llava:34b 质量最高 |
+| Qwen | `qwen-vl-max` | `qwen-vl-plus`, `qwen2.5-vl-72b-instruct`, `qwen2.5-vl-7b-instruct` | qwen-vl-plus 性价比高 |
+| Gemini | `gemini-2.0-flash` | `gemini-1.5-pro`, `gemini-2.0-flash-lite`, `gemini-1.5-flash` | gemini-1.5-pro 质量最高但较慢 |
+| DeepSeek | ❌ 无 Vision 模型 | — | 需选择其他 provider 作为 Vision LLM |
+
+---
+
+## Step 2.5: Scaffold Unimplemented Providers (if needed)
+
+If the user selected a provider not yet built-in (e.g., Qwen, Gemini, or any custom provider), auto-scaffold the implementation before proceeding to config generation.
+
+Refer to [references/new_provider_guide.md](references/new_provider_guide.md) for the complete scaffolding procedure.
+
+Summary:
+1. Create LLM class in `src/libs/llm/{name}_llm.py` (extend `BaseLLM`)
+2. Create Embedding class in `src/libs/embedding/{name}_embedding.py` (extend `BaseEmbedding`) — if needed
+3. Create Vision LLM class in `src/libs/llm/{name}_vision_llm.py` (extend `BaseVisionLLM`) — if needed
+4. Register in `src/libs/llm/__init__.py` and `src/libs/embedding/__init__.py`
+5. Add `base_url` field to `LLMSettings` / `EmbeddingSettings` if the provider uses a custom endpoint
+6. Install provider SDK: `pip install <sdk>` if needed
+7. Add provider profile to `references/provider_profiles.md`
+
+Many providers (Qwen, Gemini, Groq, Mistral, etc.) are OpenAI-compatible — simply subclass `OpenAILLM` / `OpenAIEmbedding` and override `DEFAULT_BASE_URL` + auth logic.
 
 ---
 
