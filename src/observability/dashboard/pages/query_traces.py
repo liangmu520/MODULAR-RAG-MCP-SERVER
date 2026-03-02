@@ -253,18 +253,44 @@ def _render_evaluate_button(trace: Dict[str, Any], idx: int) -> None:
         return
 
     st.divider()
+    st.markdown("#### 📏 Ragas Evaluation")
+    st.caption(
+        "RAGAS 需要 **Query + Retrieved Context + Answer** 三要素来评估。"
+        "日志中仅包含 Query 和检索到的上下文，请在下方输入实际回答后再运行评估。"
+    )
+
+    # Answer input box — user provides the actual generated answer
+    answer_key = f"eval_answer_{idx}"
+    user_answer = st.text_area(
+        "✏️ Generated Answer (回答)",
+        value=st.session_state.get(answer_key, ""),
+        height=120,
+        key=answer_key,
+        placeholder="请输入系统生成的回答，或粘贴 LLM 的实际输出…",
+        help=(
+            "Ragas 使用 LLM-as-Judge 评估回答质量。"
+            "faithfulness 衡量回答是否忠于检索到的上下文，"
+            "answer_relevancy 衡量回答与问题的相关性。"
+            "如果不填写回答，将无法获得有意义的评估结果。"
+        ),
+    )
+
     col_btn, col_info = st.columns([1, 3])
     with col_btn:
         clicked = st.button(
             "📏 Ragas Evaluate",
             key=f"eval_trace_{idx}",
             help="Re-run this query and score with Ragas (LLM-as-Judge)",
+            disabled=not user_answer.strip(),
         )
     with col_info:
-        st.caption(
-            "Uses Ragas to score faithfulness, answer relevancy, "
-            "and context precision. Calls LLM — may take a few seconds."
-        )
+        if not user_answer.strip():
+            st.warning("⚠️ 请先在上方输入回答内容，再运行 Ragas 评估。")
+        else:
+            st.caption(
+                "Uses Ragas to score faithfulness, answer relevancy, "
+                "and context precision. Calls LLM — may take a few seconds."
+            )
 
     # Show previous result from session state
     result_key = f"eval_result_{idx}"
@@ -273,7 +299,7 @@ def _render_evaluate_button(trace: Dict[str, Any], idx: int) -> None:
 
     if clicked:
         with st.spinner("Running Ragas evaluation…"):
-            result = _evaluate_single_trace(query, meta)
+            result = _evaluate_single_trace(query, meta, user_answer=user_answer.strip())
         st.session_state[result_key] = result
         _display_eval_metrics(result)
 
@@ -281,6 +307,7 @@ def _render_evaluate_button(trace: Dict[str, Any], idx: int) -> None:
 def _evaluate_single_trace(
     query: str,
     meta: Dict[str, Any],
+    user_answer: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Re-run retrieval and evaluate a single query with Ragas.
 
@@ -311,20 +338,23 @@ def _evaluate_single_trace(
         if not chunks:
             return {"error": "No chunks retrieved — is data indexed?"}
 
-        # Build a concise answer from top chunks (limit length to avoid
-        # Ragas LLM max_tokens overflow during statement extraction)
-        _MAX_ANSWER_CHARS = 1500
-        texts = []
-        for c in chunks:
-            if hasattr(c, "text"):
-                texts.append(c.text)
-            elif isinstance(c, dict):
-                texts.append(c.get("text", str(c)))
-            else:
-                texts.append(str(c))
-        answer = " ".join(texts[:3])
-        if len(answer) > _MAX_ANSWER_CHARS:
-            answer = answer[:_MAX_ANSWER_CHARS]
+        # Use user-provided answer; fall back to chunk concatenation only
+        # as a last resort (produces less meaningful RAGAS scores).
+        if user_answer:
+            answer = user_answer
+        else:
+            _MAX_ANSWER_CHARS = 1500
+            texts = []
+            for c in chunks:
+                if hasattr(c, "text"):
+                    texts.append(c.text)
+                elif isinstance(c, dict):
+                    texts.append(c.get("text", str(c)))
+                else:
+                    texts.append(str(c))
+            answer = " ".join(texts[:3])
+            if len(answer) > _MAX_ANSWER_CHARS:
+                answer = answer[:_MAX_ANSWER_CHARS]
 
         # Evaluate
         metrics = evaluator.evaluate(
@@ -332,7 +362,7 @@ def _evaluate_single_trace(
             retrieved_chunks=chunks,
             generated_answer=answer,
         )
-        return {"metrics": metrics}
+        return {"metrics": metrics, "answer_used": answer}
 
     except ImportError as exc:
         return {"error": f"Ragas not installed: {exc}"}

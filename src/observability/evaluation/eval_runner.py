@@ -165,6 +165,7 @@ class EvalRunner:
         hybrid_search: Any = None,
         evaluator: Optional[BaseEvaluator] = None,
         answer_generator: Any = None,
+        answer_overrides: Optional[Dict[int, str]] = None,
     ) -> None:
         """Initialize EvalRunner.
 
@@ -175,11 +176,15 @@ class EvalRunner:
             answer_generator: Optional callable(query, chunks) -> str
                 for generating answers. If None, a simple concatenation
                 is used as a placeholder.
+            answer_overrides: Optional dict mapping test case index (0-based)
+                to a user-provided answer string. When present, the override
+                answer is used instead of auto-generation for that test case.
         """
         self.settings = settings
         self.hybrid_search = hybrid_search
         self.evaluator = evaluator
         self.answer_generator = answer_generator
+        self.answer_overrides = answer_overrides or {}
 
     def run(
         self,
@@ -223,7 +228,12 @@ class EvalRunner:
 
         for idx, tc in enumerate(test_cases):
             logger.info("Evaluating [%d/%d]: %s", idx + 1, len(test_cases), tc.query[:60])
-            qr = self._evaluate_single(tc, top_k=top_k, collection=collection)
+            # Use user-provided answer override if available for this index
+            answer_override = self.answer_overrides.get(idx)
+            qr = self._evaluate_single(
+                tc, top_k=top_k, collection=collection,
+                answer_override=answer_override,
+            )
             report.query_results.append(qr)
 
         report.total_elapsed_ms = (time.monotonic() - t0) * 1000.0
@@ -242,6 +252,7 @@ class EvalRunner:
         test_case: GoldenTestCase,
         top_k: int = 10,
         collection: Optional[str] = None,
+        answer_override: Optional[str] = None,
     ) -> QueryResult:
         """Evaluate a single test case.
 
@@ -249,6 +260,8 @@ class EvalRunner:
             test_case: The test case to evaluate.
             top_k: Number of results to retrieve.
             collection: Optional collection filter.
+            answer_override: User-provided answer text. When set, used
+                instead of auto-generated answer from chunks.
 
         Returns:
             QueryResult with metrics for this test case.
@@ -262,8 +275,11 @@ class EvalRunner:
             self._get_chunk_id(c) for c in retrieved_chunks
         ]
 
-        # Step 2: Generate answer (if generator available)
-        answer = self._generate_answer(test_case.query, retrieved_chunks)
+        # Step 2: Generate answer — prefer user override, then generator, then fallback
+        if answer_override:
+            answer = answer_override
+        else:
+            answer = self._generate_answer(test_case.query, retrieved_chunks)
         qr.generated_answer = answer
 
         # Step 3: Build ground truth

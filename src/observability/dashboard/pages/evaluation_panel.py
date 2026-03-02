@@ -93,6 +93,48 @@ def render() -> None:
             "See `tests/fixtures/golden_test_set.json` for the format."
         )
 
+    # ── Answer Input Section (for Ragas) ───────────────────────────
+    user_answers: Dict[int, str] = {}
+    if backend == "ragas" and golden_path.exists():
+        st.divider()
+        st.subheader("✏️ Provide Answers (回答输入)")
+        st.caption(
+            "**RAGAS 需要 Query + Context + Answer 三要素来评估。**"
+            "日志中仅包含 Query 和检索到的上下文（Context），"
+            "请为每个测试用例填写实际的系统回答（Answer），"
+            "以便获得有意义的 faithfulness 和 answer_relevancy 评分。"
+        )
+        try:
+            _test_cases = _load_golden_queries(golden_path)
+            for tc_idx, tc in enumerate(_test_cases):
+                ans_key = f"eval_answer_tc_{tc_idx}"
+                default_val = tc.get("reference_answer", "")
+                q_preview = tc["query"][:60] + ("…" if len(tc["query"]) > 60 else "")
+                user_ans = st.text_area(
+                    f"Q{tc_idx + 1}: {q_preview}",
+                    value=st.session_state.get(ans_key, default_val),
+                    height=80,
+                    key=ans_key,
+                    placeholder="请输入该问题对应的系统回答…",
+                    help=(
+                        f"Query: {tc['query']}\n\n"
+                        "填写 LLM 生成的回答或期望的回答文本。"
+                        "Ragas 会基于此评估 faithfulness（忠实度）和 answer_relevancy（相关性）。"
+                    ),
+                )
+                if user_ans.strip():
+                    user_answers[tc_idx] = user_ans.strip()
+
+            # Show fill status
+            filled = len(user_answers)
+            total = len(_test_cases)
+            if filled < total:
+                st.warning(f"⚠️ 已填写 {filled}/{total} 个回答。未填写的用例将使用检索片段拼接作为回答（评估结果可能不准确）。")
+            else:
+                st.success(f"✅ 所有 {total} 个回答已填写。")
+        except Exception as exc:
+            st.warning(f"无法加载测试用例预览: {exc}")
+
     # ── Run Evaluation ─────────────────────────────────────────────
     st.divider()
 
@@ -109,6 +151,7 @@ def render() -> None:
             golden_path=golden_path,
             top_k=int(top_k),
             collection=collection.strip() or None,
+            user_answers=user_answers if user_answers else None,
         )
 
     # ── Historical Results ─────────────────────────────────────────
@@ -121,6 +164,7 @@ def _run_evaluation(
     golden_path: Path,
     top_k: int,
     collection: Optional[str],
+    user_answers: Optional[Dict[int, str]] = None,
 ) -> None:
     """Execute an evaluation run and display results.
 
@@ -135,6 +179,7 @@ def _run_evaluation(
                 golden_path=golden_path,
                 top_k=top_k,
                 collection=collection,
+                user_answers=user_answers,
             )
         except Exception as exc:
             st.error(f"❌ Evaluation failed: {exc}")
@@ -156,6 +201,7 @@ def _execute_evaluation(
     golden_path: Path,
     top_k: int,
     collection: Optional[str],
+    user_answers: Optional[Dict[int, str]] = None,
 ) -> Dict[str, Any]:
     """Run the evaluation pipeline and return the report dict.
 
@@ -187,10 +233,13 @@ def _execute_evaluation(
     target_collection = collection or "default"
     hybrid_search = _try_create_hybrid_search(settings, target_collection)
 
+    # Build answer_override map: index → user-provided answer text
+    # EvalRunner will use these instead of auto-generating from chunks.
     runner = EvalRunner(
         settings=settings,
         hybrid_search=hybrid_search,
         evaluator=evaluator,
+        answer_overrides=user_answers,
     )
 
     report = runner.run(
@@ -381,3 +430,14 @@ def _load_history() -> List[Dict[str, Any]]:
         logger.warning("Failed to load evaluation history: %s", exc)
 
     return entries
+
+
+def _load_golden_queries(golden_path: Path) -> List[Dict[str, Any]]:
+    """Load test cases from golden test set for display in the UI.
+
+    Returns list of dicts with at least 'query' and optionally
+    'reference_answer' keys.
+    """
+    with golden_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("test_cases", [])
