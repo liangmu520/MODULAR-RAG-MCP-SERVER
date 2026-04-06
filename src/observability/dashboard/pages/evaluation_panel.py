@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+from src.observability.dashboard.i18n import t
+
 logger = logging.getLogger(__name__)
 
 # Default golden test set location
@@ -27,83 +29,40 @@ EVAL_HISTORY_PATH = Path("logs/eval_history.jsonl")
 
 def render() -> None:
     """Render the Evaluation Panel page."""
-    st.header("📏 Evaluation Panel")
-    st.markdown(
-        "Run evaluation against a **golden test set** to measure retrieval "
-        "and generation quality. Results include per-query details and "
-        "aggregate metrics."
-    )
+    st.header(t("eval.title"))
+    st.markdown(t("eval.description"))
 
     # ── Configuration Section ──────────────────────────────────────
-    st.subheader("⚙️ Configuration")
+    st.subheader(t("eval.config"))
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         backend = st.selectbox(
-            "Evaluator Backend",
+            t("eval.backend"),
             options=["custom", "ragas", "composite"],
             index=0,
             key="eval_backend",
-            help="Select which evaluator backend to use.",
-        )
-
-    # Show info/warning based on selected backend
-    if backend in ("custom", "composite"):
-        st.info(
-            "ℹ️ **Custom Evaluator** 尚未完成数据集准备，当前仅为预留接口。"
-            "Custom Evaluator 需要在 Golden Test Set 中填写 `expected_chunk_ids` "
-            "作为 ground truth 才能计算 hit_rate / MRR 指标。"
-            "目前建议使用 **ragas** 后端进行评估。",
-            icon="🚧",
         )
 
     with col2:
-        top_k = st.number_input(
-            "Top-K",
-            min_value=1,
-            max_value=50,
-            value=10,
-            key="eval_top_k",
-            help="Number of chunks to retrieve per query.",
-        )
+        top_k = st.number_input(t("eval.top_k"), min_value=1, max_value=50, value=10, key="eval_top_k")
 
     with col3:
-        collection = st.text_input(
-            "Collection (optional)",
-            value="",
-            key="eval_collection",
-            help="Limit retrieval to a specific collection.",
-        )
+        collection = st.text_input(t("eval.collection"), value="", key="eval_collection")
 
-    # Golden test set file selection
-    golden_path_str = st.text_input(
-        "Golden Test Set Path",
-        value=str(DEFAULT_GOLDEN_SET),
-        key="eval_golden_path",
-        help="Path to the golden_test_set.json file.",
-    )
+    golden_path_str = st.text_input(t("eval.golden_path"), value=str(DEFAULT_GOLDEN_SET), key="eval_golden_path")
     golden_path = Path(golden_path_str)
 
-    # Validate golden set exists
     if not golden_path.exists():
-        st.warning(
-            f"⚠️ **Golden test set not found:** `{golden_path}`. "
-            "Create a JSON file with test queries and expected results. "
-            "See `tests/fixtures/golden_test_set.json` for the format."
-        )
+        st.warning(t("eval.golden_missing", golden_path))
 
     # ── Answer Input Section (for Ragas) ───────────────────────────
     user_answers: Dict[int, str] = {}
     if backend == "ragas" and golden_path.exists():
         st.divider()
-        st.subheader("✏️ Provide Answers (回答输入)")
-        st.caption(
-            "**RAGAS 需要 Query + Context + Answer 三要素来评估。**"
-            "日志中仅包含 Query 和检索到的上下文（Context），"
-            "请为每个测试用例填写实际的系统回答（Answer），"
-            "以便获得有意义的 faithfulness 和 answer_relevancy 评分。"
-        )
+        st.subheader(t("eval.answers_section"))
+        st.caption(t("eval.answers_caption"))
         try:
             _test_cases = _load_golden_queries(golden_path)
             for tc_idx, tc in enumerate(_test_cases):
@@ -115,31 +74,25 @@ def render() -> None:
                     value=st.session_state.get(ans_key, default_val),
                     height=80,
                     key=ans_key,
-                    placeholder="请输入该问题对应的系统回答…",
-                    help=(
-                        f"Query: {tc['query']}\n\n"
-                        "填写 LLM 生成的回答或期望的回答文本。"
-                        "Ragas 会基于此评估 faithfulness（忠实度）和 answer_relevancy（相关性）。"
-                    ),
+                    placeholder=t("eval.answer_placeholder"),
                 )
                 if user_ans.strip():
                     user_answers[tc_idx] = user_ans.strip()
 
-            # Show fill status
             filled = len(user_answers)
             total = len(_test_cases)
             if filled < total:
-                st.warning(f"⚠️ 已填写 {filled}/{total} 个回答。未填写的用例将使用检索片段拼接作为回答（评估结果可能不准确）。")
+                st.warning(t("eval.answers_partial", filled, total))
             else:
-                st.success(f"✅ 所有 {total} 个回答已填写。")
+                st.success(t("eval.answers_filled", total))
         except Exception as exc:
-            st.warning(f"无法加载测试用例预览: {exc}")
+            st.warning(f"Cannot load test case preview: {exc}")
 
     # ── Run Evaluation ─────────────────────────────────────────────
     st.divider()
 
     run_clicked = st.button(
-        "▶️  Run Evaluation",
+        t("eval.run_btn"),
         type="primary",
         key="eval_run_btn",
         disabled=not golden_path.exists(),
@@ -159,40 +112,21 @@ def render() -> None:
     _render_history()
 
 
-def _run_evaluation(
-    backend: str,
-    golden_path: Path,
-    top_k: int,
-    collection: Optional[str],
-    user_answers: Optional[Dict[int, str]] = None,
-) -> None:
-    """Execute an evaluation run and display results.
-
-    Attempts to load the evaluator, run the golden test set, and
-    display aggregate + per-query metrics.  Falls back to a graceful
-    error message on failure.
-    """
-    with st.spinner("Loading evaluator and running evaluation…"):
+def _run_evaluation(backend, golden_path, top_k, collection, user_answers=None):
+    with st.spinner(t("eval.running")):
         try:
             report_dict = _execute_evaluation(
-                backend=backend,
-                golden_path=golden_path,
-                top_k=top_k,
-                collection=collection,
-                user_answers=user_answers,
+                backend=backend, golden_path=golden_path, top_k=top_k,
+                collection=collection, user_answers=user_answers,
             )
         except Exception as exc:
-            st.error(f"❌ Evaluation failed: {exc}")
+            st.error(t("eval.failed", exc))
             logger.exception("Evaluation failed")
             return
 
-    # ── Display results ────────────────────────────────────────────
-    st.success("✅ Evaluation complete!")
-
+    st.success(t("eval.success"))
     _render_aggregate_metrics(report_dict)
     _render_query_details(report_dict)
-
-    # Save to history
     _save_to_history(report_dict)
 
 
@@ -307,23 +241,15 @@ def _try_create_hybrid_search(settings: Any, collection: str = "default") -> Any
 
 
 def _render_aggregate_metrics(report: Dict[str, Any]) -> None:
-    """Display aggregate metrics as metric cards."""
-    st.subheader("📊 Aggregate Metrics")
-
+    st.subheader(t("eval.aggregate"))
     agg = report.get("aggregate_metrics", {})
-
     if not agg:
-        st.info("No aggregate metrics available.")
+        st.info(t("eval.no_aggregate"))
         return
-
     cols = st.columns(min(len(agg), 4))
     for idx, (name, value) in enumerate(sorted(agg.items())):
         with cols[idx % len(cols)]:
-            st.metric(
-                label=name.replace("_", " ").title(),
-                value=f"{value:.4f}",
-            )
-
+            st.metric(label=name.replace("_", " ").title(), value=f"{value:.4f}")
     st.caption(
         f"Evaluator: **{report.get('evaluator_name', '—')}** · "
         f"Queries: **{report.get('query_count', 0)}** · "
@@ -332,44 +258,28 @@ def _render_aggregate_metrics(report: Dict[str, Any]) -> None:
 
 
 def _render_query_details(report: Dict[str, Any]) -> None:
-    """Display per-query evaluation results in an expandable table."""
-    st.subheader("🔍 Per-Query Details")
-
+    st.subheader(t("eval.per_query"))
     query_results = report.get("query_results", [])
     if not query_results:
-        st.info("No per-query results available.")
+        st.info(t("eval.no_per_query"))
         return
-
     for idx, qr in enumerate(query_results):
         query = qr.get("query", "—")
         elapsed = qr.get("elapsed_ms", 0)
         metrics = qr.get("metrics", {})
-
-        # Build metric summary for the expander label
-        metric_summary = " · ".join(
-            f"{k}: {v:.3f}" for k, v in sorted(metrics.items())
-        )
+        metric_summary = " · ".join(f"{k}: {v:.3f}" for k, v in sorted(metrics.items()))
         if not metric_summary:
             metric_summary = "no metrics"
-
-        with st.expander(
-            f"**Q{idx + 1}**: {query[:80]} — {elapsed:.0f} ms — {metric_summary}",
-            expanded=False,
-        ):
-            # Metrics
+        with st.expander(f"**Q{idx + 1}**: {query[:80]} — {elapsed:.0f} ms — {metric_summary}", expanded=False):
             if metrics:
                 mcols = st.columns(min(len(metrics), 4))
                 for midx, (mname, mval) in enumerate(sorted(metrics.items())):
                     with mcols[midx % len(mcols)]:
                         st.metric(mname, f"{mval:.4f}")
-
-            # Retrieved chunks
             chunks = qr.get("retrieved_chunk_ids", [])
             if chunks:
                 st.markdown(f"**Retrieved Chunks** ({len(chunks)}):")
                 st.code(", ".join(chunks[:20]), language=None)
-
-            # Generated answer
             answer = qr.get("generated_answer")
             if answer:
                 st.markdown("**Generated Answer:**")
@@ -377,34 +287,20 @@ def _render_query_details(report: Dict[str, Any]) -> None:
 
 
 def _render_history() -> None:
-    """Display historical evaluation results for comparison."""
-    st.subheader("📈 Evaluation History")
-
+    st.subheader(t("eval.history"))
     history = _load_history()
     if not history:
-        st.info(
-            "**No evaluation history yet.** "
-            "Configure the evaluator above and click \"Run Evaluation\" to start. "
-            "Results will be saved here for comparison across runs."
-        )
+        st.info(t("eval.no_history"))
         return
-
-    # Show recent runs as a table
     rows = []
-    for entry in history[-10:]:  # last 10 runs
-        rows.append(
-            {
-                "Timestamp": entry.get("timestamp", "—"),
-                "Evaluator": entry.get("evaluator_name", "—"),
-                "Queries": entry.get("query_count", 0),
-                "Time (ms)": round(entry.get("total_elapsed_ms", 0)),
-                **{
-                    k: round(v, 4)
-                    for k, v in entry.get("aggregate_metrics", {}).items()
-                },
-            }
-        )
-
+    for entry in history[-10:]:
+        rows.append({
+            "Timestamp": entry.get("timestamp", "—"),
+            "Evaluator": entry.get("evaluator_name", "—"),
+            "Queries": entry.get("query_count", 0),
+            "Time (ms)": round(entry.get("total_elapsed_ms", 0)),
+            **{k: round(v, 4) for k, v in entry.get("aggregate_metrics", {}).items()},
+        })
     st.dataframe(rows, use_container_width=True)
 
 

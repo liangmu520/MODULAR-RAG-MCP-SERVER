@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+from src.observability.dashboard.i18n import t
 from src.observability.dashboard.services.trace_service import TraceService
 
 logger = logging.getLogger(__name__)
@@ -25,16 +26,16 @@ logger = logging.getLogger(__name__)
 
 def render() -> None:
     """Render the Ingestion Traces page."""
-    st.header("🔬 Ingestion Traces")
+    st.header(t("ingestion_traces.title"))
 
     svc = TraceService()
     traces = svc.list_traces(trace_type="ingestion")
 
     if not traces:
-        st.info("No ingestion traces recorded yet. Run an ingestion first!")
+        st.info(t("ingestion_traces.no_traces"))
         return
 
-    st.subheader(f"📋 Trace History ({len(traces)})")
+    st.subheader(t("ingestion_traces.history", len(traces)))
 
     for idx, trace in enumerate(traces):
         trace_id = trace.get("trace_id", "unknown")
@@ -53,8 +54,8 @@ def render() -> None:
             stages_by_name = {t["stage_name"]: t for t in timings}
 
             # ── 1. Overview metrics ────────────────────────────
-            st.markdown("#### 📊 Pipeline Overview")
-            st.caption(f"Source: `{source_path}`")
+            st.markdown(t("ingestion_traces.overview"))
+            st.caption(t("ingestion_traces.source", source_path))
 
             load_d = stages_by_name.get("load", {}).get("data", {})
             split_d = stages_by_name.get("split", {}).get("data", {})
@@ -64,15 +65,15 @@ def render() -> None:
 
             c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
-                st.metric("Doc Length", f"{load_d.get('text_length', 0):,} chars")
+                st.metric(t("ingestion_traces.doc_length"), f"{load_d.get('text_length', 0):,} chars")
             with c2:
-                st.metric("Chunks", split_d.get("chunk_count", 0))
+                st.metric(t("ingestion_traces.chunks"), split_d.get("chunk_count", 0))
             with c3:
-                st.metric("Images", load_d.get("image_count", 0))
+                st.metric(t("ingestion_traces.images"), load_d.get("image_count", 0))
             with c4:
-                st.metric("Vectors", upsert_d.get("vector_count", 0))
+                st.metric(t("ingestion_traces.vectors"), upsert_d.get("vector_count", 0))
             with c5:
-                st.metric("Total Time", total_label)
+                st.metric(t("ingestion_traces.total_time"), total_label)
 
             st.divider()
 
@@ -83,15 +84,15 @@ def render() -> None:
                 if t["stage_name"] in ("load", "split", "transform", "embed", "upsert")
             ]
             if main_stages:
-                st.markdown("#### ⏱️ Stage Timings")
+                st.markdown(t("ingestion_traces.stage_timings"))
                 chart_data = {t["stage_name"]: t["elapsed_ms"] for t in main_stages}
                 st.bar_chart(chart_data, horizontal=True)
                 st.table([
                     {
-                        "Stage": t["stage_name"],
-                        "Elapsed (ms)": round(t["elapsed_ms"], 2),
+                        t("ingestion_traces.stage"): t_["stage_name"],
+                        t("ingestion_traces.elapsed"): round(t_["elapsed_ms"], 2),
                     }
-                    for t in main_stages
+                    for t_ in main_stages
                 ])
 
             # ── Diagnostics ───────────────────────────────────
@@ -100,7 +101,7 @@ def render() -> None:
             st.divider()
 
             # ── 3. Per-stage detail tabs ───────────────────────
-            st.markdown("#### 🔍 Stage Details")
+            st.markdown(t("ingestion_traces.stage_details"))
 
             tab_defs = []
             if "load" in stages_by_name:
@@ -135,7 +136,7 @@ def render() -> None:
                         elif key == "upsert":
                             _render_upsert_stage(data)
             else:
-                st.info("No stage details available.")
+                st.info(t("ingestion_traces.no_stage_details"))
 
 
 def _render_ingestion_diagnostics(

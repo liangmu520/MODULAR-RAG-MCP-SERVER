@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+from src.observability.dashboard.i18n import t
 from src.observability.dashboard.services.trace_service import TraceService
 
 logger = logging.getLogger(__name__)
@@ -21,31 +22,26 @@ logger = logging.getLogger(__name__)
 
 def render() -> None:
     """Render the Query Traces page."""
-    st.header("🔎 Query Traces")
+    st.header(t("query_traces.title"))
 
     svc = TraceService()
     traces = svc.list_traces(trace_type="query")
 
     if not traces:
-        st.info("No query traces recorded yet. Run a query first!")
+        st.info(t("query_traces.no_traces"))
         return
 
     # ── Keyword filter ─────────────────────────────────────────────
-    keyword = st.text_input(
-        "Search by query keyword",
-        value="",
-        key="qt_keyword",
-    )
+    keyword = st.text_input(t("query_traces.search"), value="", key="qt_keyword")
     if keyword.strip():
         kw = keyword.strip().lower()
         traces = [
-            t
-            for t in traces
-            if kw in str(t.get("metadata", {})).lower()
-            or kw in str(t.get("stages", [])).lower()
+            tr for tr in traces
+            if kw in str(tr.get("metadata", {})).lower()
+            or kw in str(tr.get("stages", [])).lower()
         ]
 
-    st.subheader(f"📋 Query History ({len(traces)})")
+    st.subheader(t("query_traces.history", len(traces)))
 
     for idx, trace in enumerate(traces):
         trace_id = trace.get("trace_id", "unknown")
@@ -66,15 +62,15 @@ def render() -> None:
 
         with st.expander(expander_title, expanded=(idx == 0)):
             # ── 1. Query overview ──────────────────────────────
-            st.markdown("#### 💬 Query")
+            st.markdown(t("query_traces.query_section"))
             col_q, col_meta = st.columns([3, 1])
             with col_q:
                 st.markdown(f"> {query_text}")
             with col_meta:
                 source_emoji = "🤖" if source == "mcp" else "📡"
-                st.markdown(f"**Source:** {source_emoji} `{source}`")
-                st.markdown(f"**Top-K:** `{meta.get('top_k', '—')}`")
-                st.markdown(f"**Collection:** `{meta.get('collection', '—')}`")
+                st.markdown(f"{t('query_traces.source')} {source_emoji} `{source}`")
+                st.markdown(f"{t('query_traces.top_k')} `{meta.get('top_k', '—')}`")
+                st.markdown(f"{t('query_traces.collection')} `{meta.get('collection', '—')}`")
 
             st.divider()
 
@@ -94,15 +90,15 @@ def render() -> None:
 
             rc1, rc2, rc3, rc4, rc5 = st.columns(5)
             with rc1:
-                st.metric("Dense Hits", dense_count)
+                st.metric(t("query_traces.dense_hits"), dense_count)
             with rc2:
-                st.metric("Sparse Hits", sparse_count)
+                st.metric(t("query_traces.sparse_hits"), sparse_count)
             with rc3:
-                st.metric("Fused", fusion_count or (dense_count + sparse_count))
+                st.metric(t("query_traces.fused"), fusion_count or (dense_count + sparse_count))
             with rc4:
-                st.metric("After Rerank", rerank_count if rerank_d else "—")
+                st.metric(t("query_traces.after_rerank"), rerank_count if rerank_d else "—")
             with rc5:
-                st.metric("Total Time", total_label)
+                st.metric(t("query_traces.total_time"), total_label)
 
             # ── Diagnostic hints ───────────────────────────────
             _render_diagnostics(
@@ -116,21 +112,21 @@ def render() -> None:
             main_stage_names = ("query_processing", "dense_retrieval", "sparse_retrieval", "fusion", "rerank")
             main_timings = [t for t in timings if t["stage_name"] in main_stage_names]
             if main_timings:
-                st.markdown("#### ⏱️ Stage Timings")
-                chart_data = {t["stage_name"]: t["elapsed_ms"] for t in main_timings}
+                st.markdown(t("query_traces.stage_timings"))
+                chart_data = {t_["stage_name"]: t_["elapsed_ms"] for t_ in main_timings}
                 st.bar_chart(chart_data, horizontal=True)
                 st.table([
                     {
-                        "Stage": t["stage_name"],
-                        "Elapsed (ms)": round(t["elapsed_ms"], 2),
+                        t("ingestion_traces.stage"): t_["stage_name"],
+                        t("ingestion_traces.elapsed"): round(t_["elapsed_ms"], 2),
                     }
-                    for t in main_timings
+                    for t_ in main_timings
                 ])
 
             st.divider()
 
             # ── 4. Per-stage detail tabs ───────────────────────
-            st.markdown("#### 🔍 Stage Details")
+            st.markdown(t("query_traces.stage_details"))
 
             tab_defs = []
             if "query_processing" in stages_by_name:
@@ -165,7 +161,7 @@ def render() -> None:
                         elif key == "rerank":
                             _render_rerank_stage(data, trace_idx=idx)
             else:
-                st.info("No stage details available.")
+                st.info(t("query_traces.no_stage_details"))
 
             # ── 5. Ragas Evaluate button ───────────────────────
             _render_evaluate_button(trace, idx)
